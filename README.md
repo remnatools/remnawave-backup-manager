@@ -66,18 +66,28 @@ nano .env   # задать ADMIN_USER и ADMIN_PASS
 ```bash
 touch /var/log/remnawave_backup.log
 ```
+**5. Выпустить SSL сертификат для backup.your-domain.com**
 
-**5. Запустить**
+```Порт 80 должен быть свободен
+ss -tlnp | grep :80
 
-```bash
-docker compose up -d --build
+~/.acme.sh/acme.sh --issue -d backup.your-domain.com \
+  --standalone --server letsencrypt \
+  --key-file /opt/remnawave/nginx/backup.privkey.key \
+  --fullchain-file /opt/remnawave/nginx/backup.fullchain.pem
 ```
 
-Интерфейс доступен на `http://YOUR_SERVER_IP:8090`.
+**6. Добавить сертификат в nginx**
 
-### Настройка HTTPS (nginx)
+Добавьте тома сертификатов в nginx `docker-compose.yml` (`/opt/remnawave/nginx/docker-compose.yml`):
 
-Добавьте server block в nginx конфиг:
+```yaml
+volumes:
+  - ./backup.fullchain.pem:/etc/nginx/ssl/backup.fullchain.pem:ro
+  - ./backup.privkey.key:/etc/nginx/ssl/backup.privkey.key:ro
+```
+
+# Добавьте server block в nginx конфиг (`/opt/remnawave/nginx/nginx.conf`):
 
 ```nginx
 server {
@@ -95,10 +105,26 @@ server {
     }
 
     ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_certificate     /path/to/fullchain.pem;
-    ssl_certificate_key /path/to/privkey.key;
+    ssl_certificate     "/etc/nginx/ssl/backup.fullchain.pem";
+    ssl_certificate_key "/etc/nginx/ssl/backup.privkey.key";
 }
 ```
+
+# Перезапустите nginx:
+
+```bash
+cd /opt/remnawave/nginx
+docker compose down && docker compose up -d
+```
+
+**7. Запустить**
+
+```bash
+docker compose up -d --build
+```
+
+Интерфейс доступен через nginx на `https://backup.your-domain.com`.
+
 
 ### После запуска
 
