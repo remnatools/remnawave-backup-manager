@@ -36,7 +36,8 @@
 ### Быстрый старт (одна команда)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/remnatools/remnawave-backup-manager/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/remnatools/remnawave-backup-manager/main/install.sh -o install.sh
+chmod +x install.sh && ./install.sh
 ```
 
 ### Ручная установка
