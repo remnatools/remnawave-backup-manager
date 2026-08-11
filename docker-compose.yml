@@ -1,0 +1,28 @@
+services:
+  backup-manager:
+    build: .
+    container_name: vless4less-backup-manager
+    restart: always
+    env_file:
+      - .env
+    volumes:
+      - ${HOST_BACKUP_ROOT:-/root/vless4less-backups}:/backups
+      - /root/vless4less-backup-manager/data:/app/data
+      - ${BOT_SRC:-/root/remnawave-bedolaga-telegram-bot}:/root/remnawave-bedolaga-telegram-bot:ro
+      - ${CABINET_SRC:-/root/bedolaga-cabinet}:/root/bedolaga-cabinet:ro
+      - ${PANEL_DIR:-/opt/remnawave}:/opt/remnawave:ro
+      - ./backup.sh:/app/backup.sh:ro
+      - ./app/main.py:/app/main.py
+      - ./templates:/app/templates
+      - /var/log:/var/log
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /root/.ssh:/root/.ssh
+    ports:
+      - "127.0.0.1:8090:8090"
+    networks:
+      - remnawave-network
+
+networks:
+  remnawave-network:
+    name: remnawave-network
+    external: true

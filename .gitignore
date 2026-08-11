@@ -1,0 +1,14 @@
+# Секреты — никогда не коммитить
+.env
+data/tokens.json
+data/config.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Docker build cache
+.dockerignore
+data/
+data/
