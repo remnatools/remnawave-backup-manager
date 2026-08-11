@@ -87,7 +87,7 @@ volumes:
   - ./backup.privkey.key:/etc/nginx/ssl/backup.privkey.key:ro
 ```
 
-### Добавьте server block в nginx конфиг (`/opt/remnawave/nginx/nginx.conf`):
+#### Добавьте server block в nginx конфиг (`/opt/remnawave/nginx/nginx.conf`):
 
 ```nginx
 server {
@@ -110,7 +110,7 @@ server {
 }
 ```
 
-### Перезапустите nginx:
+#### Перезапустите nginx:
 
 ```bash
 cd /opt/remnawave/nginx
