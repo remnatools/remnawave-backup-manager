@@ -36,7 +36,7 @@
 ### Быстрый старт (одна команда)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YOUR_GITHUB_ORG/remnawave-backup-manager/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/remnatools/remnawave-backup-manager/main/install.sh | bash
 ```
 
 ### Ручная установка
@@ -50,7 +50,7 @@ curl -fsSL https://get.docker.com | sh
 **2. Клонировать репо**
 
 ```bash
-git clone https://github.com/YOUR_GITHUB_ORG/remnawave-backup-manager.git ~/remnawave-backup-manager
+git clone https://github.com/remnatools/remnawave-backup-manager.git ~/remnawave-backup-manager
 cd ~/remnawave-backup-manager
 ```
 
@@ -153,7 +153,7 @@ remnawave-backup-manager/
 
 ## Связанные проекты
 
-- **[Remnawave Restore Manager](https://github.com/YOUR_GITHUB_ORG/remnawave-restore-manager)** — веб-wizard для восстановления панели на резервном сервере из бэкапов этого инструмента
+- **[Remnawave Restore Manager](https://github.com/remnatools/remnawave-restore-manager)** — веб-wizard для восстановления панели на резервном сервере из бэкапов этого инструмента
 
 ## Лицензия
 
