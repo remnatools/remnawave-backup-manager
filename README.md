@@ -1,6 +1,6 @@
 # Remnawave Backup Manager
 
-Веб-интерфейс для резервного копирования [Remnawave](https://github.com/remnawave) VPN-панели с Bedolaga ботом.
+Веб-интерфейс для резервного копирования [Remnawave](https://github.com/remnawave) VPN-панели с [BEDOLAGA ботом](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot) и [BEDOLAGA кабинетом](https://github.com/BEDOLAGA-DEV/bedolaga-cabinet) на резервном сервере.
 
 ![Python](https://img.shields.io/badge/Python-FastAPI-009688?style=flat-square)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square)
