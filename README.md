@@ -16,6 +16,12 @@
 - **Брендинг** — кастомный логотип, favicon, название
 - **Просмотр и управление бэкапами** — список с размерами, удаление по одному
 - **Лог операций** — сохраняется вне контейнера
+- 
+<div align="center">
+  <img width="30%" alt="бэкапы" src="https://github.com/user-attachments/assets/032e84f5-da51-4bff-85ad-ecead1eca77b" />
+  <img width="30%" alt="настройки" src="https://github.com/user-attachments/assets/fb6b14e8-0e27-4746-997b-6a5ed5560ed1" />
+  <img width="30%" alt="ssh" src="https://github.com/user-attachments/assets/50c430fb-32d6-40d5-8c69-709c37a1b333" />
+</div>
 
 ## Что бэкапится
 
