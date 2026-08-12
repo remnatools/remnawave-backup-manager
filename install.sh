@@ -32,7 +32,7 @@ echo "║     Remnawave Backup Manager — Installer     ║"
 echo "╚══════════════════════════════════════════════╝"
 echo ""
 
-# ── 1. Docker ────────────────────────────────────────────────────────────────
+# ── 1. Docker ─────────────────────────────────────────────────────────────────
 if ! command -v docker &>/dev/null; then
     info "Устанавливаю Docker..."
     curl -fsSL https://get.docker.com | sh
@@ -41,13 +41,20 @@ else
     info "Docker уже установлен: $(docker --version | cut -d' ' -f3 | tr -d ',')"
 fi
 
-# ── 2. acme.sh ───────────────────────────────────────────────────────────────
+# ── 2. acme.sh ────────────────────────────────────────────────────────────────
 if [ ! -f ~/.acme.sh/acme.sh ]; then
     info "Устанавливаю acme.sh..."
     echo ""
-    prompt "Email для регистрации SSL сертификатов (Let\'s Encrypt):"
-    read -rp "  Email: " ACME_EMAIL
-    [ -z "$ACME_EMAIL" ] && ACME_EMAIL="admin@example.com"
+    DEFAULT_EMAIL="admin@gmail.com"
+    prompt "Email для регистрации SSL сертификатов (Let\'s Encrypt) [по умолчанию: $DEFAULT_EMAIL]:"
+    read -rp "  Подтвердить? [Y/n]: " CONFIRM_EMAIL
+    if [[ "$CONFIRM_EMAIL" =~ ^[Nn]$ ]]; then
+        read -rp "  Введите email: " ACME_EMAIL
+        [ -z "$ACME_EMAIL" ] && ACME_EMAIL="$DEFAULT_EMAIL"
+    else
+        ACME_EMAIL="$DEFAULT_EMAIL"
+        info "Используется email: $ACME_EMAIL"
+    fi
     curl https://get.acme.sh | sh -s email="$ACME_EMAIL"
     source ~/.bashrc 2>/dev/null || true
     info "acme.sh установлен"
@@ -74,201 +81,111 @@ else
 fi
 cd "$INSTALL_DIR"
 
-# ── 5. .env ───────────────────────────────────────────────────────────────────
-if [ ! -f .env ]; then
-    cp .env.example .env
-    echo ""
-    prompt "Задайте учётные данные для входа в веб-интерфейс:"
-    read -rp "  ADMIN_USER [admin]: " AU
-    while true; do
-        read -rsp "  ADMIN_PASS: " AP; echo ""
-        read -rsp "  ADMIN_PASS (повтор): " AP2; echo ""
-        [ "$AP" = "$AP2" ] && break
-        warn "Пароли не совпадают, попробуйте снова"
-    done
-    sed -i "s/^ADMIN_USER=.*/ADMIN_USER=${AU:-admin}/" .env
-    sed -i "s/^ADMIN_PASS=.*/ADMIN_PASS=$AP/" .env
-    info ".env настроен"
-else
-    warn ".env уже существует — не перезаписываю"
-fi
+# ── 5. .env — всегда пересоздаём ─────────────────────────────────────────────
+cp .env.example .env
+echo ""
+prompt "Задайте учётные данные для входа в веб-интерфейс:"
+read -rp "  ADMIN_USER [admin]: " AU
+while true; do
+    read -rsp "  ADMIN_PASS: " AP; echo ""
+    read -rsp "  ADMIN_PASS (повтор): " AP2; echo ""
+    [ "$AP" = "$AP2" ] && break
+    warn "Пароли не совпадают, попробуйте снова"
+done
+sed -i "s/^ADMIN_USER=.*/ADMIN_USER=${AU:-admin}/" .env
+sed -i "s/^ADMIN_PASS=.*/ADMIN_PASS=$AP/" .env
+info ".env настроен"
 
-# ── 6. Домен и SSL ────────────────────────────────────────────────────────────
+# ── 6. SSL сертификат ─────────────────────────────────────────────────────────
 echo ""
 prompt "Введите домен для Backup Manager (например: backup.your-domain.com):"
 read -rp "  Домен: " DOMAIN
 [ -z "$DOMAIN" ] && error "Домен не может быть пустым"
 
-SSL_DIR="/opt/remnawave/nginx"
-CERT_FILE="$SSL_DIR/backup.fullchain.pem"
-KEY_FILE="$SSL_DIR/backup.privkey.key"
-
-# Проверка порта 80
-echo ""
-info "Проверяю порт 80..."
-PORT80_PID=$(ss -tlnp | grep ':80 ' | grep -oP 'pid=\K[0-9]+' | head -1 || true)
-PORT80_NAME=$([ -n "$PORT80_PID" ] && cat /proc/$PORT80_PID/comm 2>/dev/null || true)
-
-if [ -n "$PORT80_PID" ]; then
-    warn "Порт 80 занят: $PORT80_NAME (PID $PORT80_PID)"
-    echo ""
-    echo "  [1] Остановить автоматически"
-    echo "  [2] Я остановлю вручную (скрипт подождёт)"
-    read -rp "  Выбор [1/2]: " CHOICE80
-
-    if [ "$CHOICE80" = "1" ]; then
-        kill "$PORT80_PID" 2>/dev/null && info "Процесс $PORT80_NAME (PID $PORT80_PID) остановлен" \
-            || error "Не удалось остановить процесс — остановите вручную и запустите скрипт снова"
-        sleep 1
-    else
-        warn "Остановите процесс вручную:"
-        echo "    kill $PORT80_PID   # $PORT80_NAME"
-        echo ""
-        read -rp "  Нажмите Enter когда порт 80 освобождён..."
-        ss -tlnp | grep -q ':80 ' && error "Порт 80 всё ещё занят — запустите скрипт снова"
-    fi
-else
-    info "Порт 80 свободен"
-fi
-
-# Выпуск сертификата
-info "Выпускаю SSL сертификат для $DOMAIN..."
+SSL_DIR="$INSTALL_DIR/app/ssl"
+CERT_FILE="$SSL_DIR/fullchain.pem"
+KEY_FILE="$SSL_DIR/privkey.key"
 mkdir -p "$SSL_DIR"
-$ACME --issue -d "$DOMAIN" \
-    --standalone --server letsencrypt \
-    --keylength 2048 \
-    --key-file "$KEY_FILE" \
-    --fullchain-file "$CERT_FILE" \
-    && info "SSL сертификат получен" \
-    || error "Не удалось получить сертификат. Проверьте что $DOMAIN указывает на этот сервер"
 
-# ── 7. Nginx ──────────────────────────────────────────────────────────────────
-echo ""
-info "Определяю путь к nginx..."
-
-NGINX_DIR=""
-CANDIDATES=(
-    "/opt/remnawave/nginx"
-    "/root/remnawave/nginx"
-    "/home/remnawave/nginx"
-)
-for C in "${CANDIDATES[@]}"; do
-    if [ -f "$C/nginx.conf" ] && [ -f "$C/docker-compose.yml" ]; then
-        NGINX_DIR="$C"
-        break
+if [ -f "$CERT_FILE" ] && [ -f "$KEY_FILE" ]; then
+    warn "Сертификат уже существует: $SSL_DIR"
+    read -rp "  Перевыпустить? [y/N]: " REISSUE
+    if [[ "$REISSUE" =~ ^[Yy]$ ]]; then
+        ISSUE_CERT=true
+    else
+        info "Используется существующий сертификат"
+        ISSUE_CERT=false
     fi
-done
+else
+    ISSUE_CERT=true
+fi
 
-if [ -n "$NGINX_DIR" ]; then
-    info "Найден nginx: $NGINX_DIR"
-    read -rp "  Использовать этот путь? [Y/n]: " CONFIRM_NGINX
-    if [[ "$CONFIRM_NGINX" =~ ^[Nn]$ ]]; then
-        NGINX_DIR=""
+if [ "$ISSUE_CERT" = true ]; then
+    # Проверка порта 80
+    echo ""
+    info "Проверяю порт 80..."
+    PORT80_PID=$(ss -tlnp | grep ':80 ' | grep -oP 'pid=\K[0-9]+' | head -1 || true)
+    PORT80_NAME=$([ -n "$PORT80_PID" ] && cat /proc/$PORT80_PID/comm 2>/dev/null || true)
+
+    if [ -n "$PORT80_PID" ]; then
+        warn "Порт 80 занят: $PORT80_NAME (PID $PORT80_PID)"
+        echo ""
+        echo "  [1] Остановить автоматически"
+        echo "  [2] Я остановлю вручную (скрипт подождёт)"
+        read -rp "  Выбор [1/2]: " CHOICE80
+
+        if [ "$CHOICE80" = "1" ]; then
+            kill "$PORT80_PID" 2>/dev/null \
+                && info "Процесс $PORT80_NAME (PID $PORT80_PID) остановлен" \
+                || error "Не удалось остановить процесс — остановите вручную и запустите скрипт снова"
+            sleep 1
+        else
+            warn "Остановите процесс вручную:"
+            echo "    kill $PORT80_PID   # $PORT80_NAME"
+            echo ""
+            read -rp "  Нажмите Enter когда порт 80 освобождён..."
+            ss -tlnp | grep -q ':80 ' && error "Порт 80 всё ещё занят — запустите скрипт снова"
+        fi
+    else
+        info "Порт 80 свободен"
     fi
+
+    info "Выпускаю SSL сертификат для $DOMAIN (RSA 2048)..."
+    $ACME --issue -d "$DOMAIN" \
+        --standalone --server letsencrypt \
+        --keylength 2048 \
+        --key-file "$KEY_FILE" \
+        --fullchain-file "$CERT_FILE" \
+        && info "SSL сертификат получен: $SSL_DIR" \
+        || error "Не удалось получить сертификат. Проверьте что $DOMAIN указывает на этот сервер"
 fi
 
-if [ -z "$NGINX_DIR" ]; then
-    prompt "Введите полный путь к папке nginx (где лежат nginx.conf и docker-compose.yml):"
-    read -rp "  Путь: " NGINX_DIR
-    [ ! -f "$NGINX_DIR/nginx.conf" ] && error "nginx.conf не найден в $NGINX_DIR"
-    [ ! -f "$NGINX_DIR/docker-compose.yml" ] && error "docker-compose.yml не найден в $NGINX_DIR"
-fi
-
-NGINX_CONF="$NGINX_DIR/nginx.conf"
-NGINX_COMPOSE="$NGINX_DIR/docker-compose.yml"
-
-# Добавляем server block в nginx.conf
-if grep -q "$DOMAIN" "$NGINX_CONF" 2>/dev/null; then
-    warn "Server block для $DOMAIN уже существует в nginx.conf — пропускаю"
-else
-    cat >> "$NGINX_CONF" << NGINXBLOCK
-
-server {
-    server_name $DOMAIN;
-    listen 443 ssl;
-    listen [::]:443 ssl;
-    http2 on;
-
-    location / {
-        proxy_pass http://127.0.0.1:8090;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_ignore_client_abort on;
-    }
-
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_session_cache shared:MozSSL:10m;
-    ssl_session_tickets off;
-    ssl_certificate     "/etc/nginx/ssl/backup.fullchain.pem";
-    ssl_certificate_key "/etc/nginx/ssl/backup.privkey.key";
-}
-NGINXBLOCK
-    info "Server block добавлен в nginx.conf"
-fi
-
-# Добавляем тома сертификатов в nginx docker-compose.yml
-if grep -q "backup.fullchain.pem" "$NGINX_COMPOSE" 2>/dev/null; then
-    warn "Тома сертификатов уже есть в nginx docker-compose.yml — пропускаю"
-else
-    # Вставляем после последнего тома в секции volumes
-    python3 - "$NGINX_COMPOSE" "$CERT_FILE" "$KEY_FILE" << 'PYEOF'
-import sys, re
-
-path, cert, key = sys.argv[1], sys.argv[2], sys.argv[3]
-with open(path) as f:
-    content = f.read()
-
-new_volumes = (
-    f"      - {cert}:/etc/nginx/ssl/backup.fullchain.pem:ro\n"
-    f"      - {key}:/etc/nginx/ssl/backup.privkey.key:ro\n"
-)
-
-# Ищем последний том в секции volumes и вставляем после него
-pattern = r'(volumes:(?:\n\s+- [^\n]+)+)'
-match = re.search(pattern, content)
-if match:
-    insert_pos = match.end()
-    content = content[:insert_pos] + new_volumes + content[insert_pos:]
-    with open(path, 'w') as f:
-        f.write(content)
-    print("OK")
-else:
-    print("VOLUMES_NOT_FOUND")
-PYEOF
-    info "Тома сертификатов добавлены в nginx docker-compose.yml"
-fi
-
-# Перезапускаем nginx
-info "Перезапускаю nginx..."
-cd "$NGINX_DIR"
-docker compose down && docker compose up -d
-cd "$INSTALL_DIR"
-info "nginx перезапущен"
-
-# ── 8. Лог-файл ───────────────────────────────────────────────────────────────
+# ── 7. Лог-файл ───────────────────────────────────────────────────────────────
 touch "$LOG_FILE"
 info "Лог-файл создан: $LOG_FILE"
 
-# ── 9. Запуск Backup Manager ──────────────────────────────────────────────────
+# ── 8. Запуск Backup Manager ──────────────────────────────────────────────────
 echo ""
 info "Собираю и запускаю Backup Manager..."
 docker compose up -d --build
 
 # ── Готово ────────────────────────────────────────────────────────────────────
 echo ""
-echo "╔══════════════════════════════════════════════════════╗"
-echo "║  ✅  Remnawave Backup Manager запущен!               ║"
-echo "╠══════════════════════════════════════════════════════╣"
-echo "║                                                      ║"
-printf "║  🌐  https://%-38s║\n" "$DOMAIN"
-echo "║                                                      ║"
-echo "║  Следующие шаги:                                     ║"
-echo "║  1. Войдите с логином и паролем из .env              ║"
-echo "║  2. Вкладка SSH → сгенерируйте ключ                 ║"
-echo "║  3. Установите ключ на резервные серверы             ║"
-echo "║  4. Настройки → добавьте удалённые хосты            ║"
-echo "║  5. Нажмите «Запустить бэкап» для проверки          ║"
-echo "╚══════════════════════════════════════════════════════╝"
+echo "╔══════════════════════════════════════════════════════════╗"
+echo "║  ✅  Remnawave Backup Manager запущен!                   ║"
+echo "╠══════════════════════════════════════════════════════════╣"
+echo "║                                                          ║"
+printf "║  🌐  https://%-44s║\n" "$DOMAIN"
+echo "║                                                          ║"
+echo "║  Следующие шаги:                                         ║"
+echo "║  1. Войдите с логином и паролем из .env                  ║"
+echo "║  2. Вкладка SSH → сгенерируйте ключ                     ║"
+echo "║  3. Установите ключ на резервные серверы                 ║"
+echo "║  4. Настройки → добавьте удалённые хосты для rsync      ║"
+echo "║  5. Настройки → укажите путь к nginx для HTTPS           ║"
+echo "║  6. Нажмите «Запустить бэкап» для проверки              ║"
+echo "╚══════════════════════════════════════════════════════════╝"
+echo ""
+warn "Для работы через HTTPS настройте nginx в веб-интерфейсе:"
+warn "Настройки → Nginx → укажите путь к nginx.conf и домен"
 echo ""
