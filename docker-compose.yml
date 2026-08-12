@@ -13,6 +13,7 @@ services:
       - ${PANEL_DIR:-/opt/remnawave}:/opt/remnawave
       - ./backup.sh:/app/backup.sh:ro
       - ./app/main.py:/app/main.py
+      - ./app/ssl:/app/ssl:ro
       - ./templates:/app/templates
       - /var/log:/var/log
       - /var/run/docker.sock:/var/run/docker.sock
