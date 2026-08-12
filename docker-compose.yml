@@ -1,13 +1,13 @@
 services:
   backup-manager:
     build: .
-    container_name: vless4less-backup-manager
+    container_name: remnawave-backup-manager
     restart: always
     env_file:
       - .env
     volumes:
-      - ${HOST_BACKUP_ROOT:-/root/vless4less-backups}:/backups
-      - /root/vless4less-backup-manager/data:/app/data
+      - ${HOST_BACKUP_ROOT:-/root/remnawave-backups}:/backups
+      - ./data:/app/data
       - ${BOT_SRC:-/root/remnawave-bedolaga-telegram-bot}:/root/remnawave-bedolaga-telegram-bot:ro
       - ${CABINET_SRC:-/root/bedolaga-cabinet}:/root/bedolaga-cabinet:ro
       - ${PANEL_DIR:-/opt/remnawave}:/opt/remnawave:ro
