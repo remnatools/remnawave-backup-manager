@@ -10,7 +10,7 @@ services:
       - ./data:/app/data
       - ${BOT_SRC:-/root/remnawave-bedolaga-telegram-bot}:/root/remnawave-bedolaga-telegram-bot:ro
       - ${CABINET_SRC:-/root/bedolaga-cabinet}:/root/bedolaga-cabinet:ro
-      - ${PANEL_DIR:-/opt/remnawave}:/opt/remnawave:ro
+      - ${PANEL_DIR:-/opt/remnawave}:/opt/remnawave
       - ./backup.sh:/app/backup.sh:ro
       - ./app/main.py:/app/main.py
       - ./templates:/app/templates

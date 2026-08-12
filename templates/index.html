@@ -164,6 +164,7 @@
     <button class="tab active" onclick="switchTab('backups',this)">💾 Бэкапы</button>
     <button class="tab" onclick="switchTab('settings',this)">⚙️ Настройки</button>
     <button class="tab" onclick="switchTab('ssh',this)">🔑 SSH</button>
+    <button class="tab" onclick="switchTab('nginx',this)">🌐 Nginx</button>
     <button class="tab" onclick="switchTab('log',this)">📋 Лог</button>
   </div>
 
@@ -336,6 +337,50 @@
     </div>
   </div>
 
+  <!-- Nginx -->
+  <div id="tab-nginx" class="tab-content">
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-title" style="margin-bottom:12px">Текущий статус nginx</div>
+      <div id="nginx-info" style="font-size:12px;color:var(--muted)">⏳ Проверяю...</div>
+      <button class="btn btn-ghost btn-sm" style="margin-top:12px" onclick="checkNginx()">🔄 Обновить статус</button>
+    </div>
+
+    <div class="card">
+      <div class="card-title" style="margin-bottom:4px">Настройка HTTPS через nginx</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:16px">Backup Manager работает на порту 8090. Укажите путь к nginx чтобы добавить HTTPS-доступ.</div>
+
+      <div class="form-group">
+        <label class="form-label">Upstream (имя Docker контейнера или IP:порт)</label>
+        <input class="form-input" id="nginx-upstream" value="{{NGINX_UPSTREAM}}" placeholder="remnawave-backup-manager:8090">
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">Соответствует container_name в docker-compose.yml backup manager</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Папка nginx (где лежат nginx.conf и docker-compose.yml)</label>
+        <div style="display:flex;gap:8px">
+          <input class="form-input" id="nginx-dir" placeholder="/opt/remnawave/nginx" style="flex:1" value="{{NGINX_DIR}}">
+          <button class="btn btn-ghost btn-sm" onclick="detectNginx()">🔍 Найти</button>
+        </div>
+        <div id="nginx-detect-status" style="font-size:11px;color:var(--muted);margin-top:4px"></div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Домен (например: backup.your-domain.com)</label>
+        <input class="form-input" id="nginx-domain" placeholder="backup.your-domain.com" value="{{NGINX_DOMAIN}}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Путь к SSL сертификату (fullchain.pem)</label>
+        <input class="form-input" id="nginx-cert" value="/app/ssl/fullchain.pem" disabled style="opacity:0.6;cursor:not-allowed">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Путь к SSL ключу (privkey.key)</label>
+        <input class="form-input" id="nginx-key" value="/app/ssl/privkey.key" disabled style="opacity:0.6;cursor:not-allowed">
+      </div>
+
+      <div id="nginx-status" style="display:none;padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:12px"></div>
+
+      <button class="btn btn-primary" style="width:100%" onclick="applyNginx()">⚡ Применить</button>
+    </div>
+  </div>
+
   <!-- Лог -->
   <div id="tab-log" class="tab-content">
     <div class="section-header">
@@ -352,6 +397,97 @@
 const TOKEN = localStorage.getItem('auth_token');
 if (!TOKEN) window.location.href = '/login';
 let sshKeyExists = {{SSH_KEY_EXISTS}};
+const NGINX_DEFAULT_CERT = "/app/ssl/fullchain.pem";
+const NGINX_DEFAULT_KEY  = "/app/ssl/privkey.key";
+
+// Автозаполнение путей сертификата при изменении папки nginx
+document.addEventListener('DOMContentLoaded', () => {
+  const certInput = document.getElementById('nginx-cert');
+  const keyInput  = document.getElementById('nginx-key');
+  if (certInput && !certInput.value) certInput.value = NGINX_DEFAULT_CERT;
+  if (keyInput  && !keyInput.value)  keyInput.value  = NGINX_DEFAULT_KEY;
+});
+
+async function detectNginx() {
+  const statusEl = document.getElementById('nginx-detect-status');
+  statusEl.textContent = '🔍 Поиск...';
+  statusEl.style.color = 'var(--muted)';
+  try {
+    const r = await authFetch('/api/nginx/detect');
+    const d = await r.json();
+    if (d.found) {
+      document.getElementById('nginx-dir').value = d.path;
+      statusEl.textContent = '✓ Найден: ' + d.path;
+      statusEl.style.color = 'var(--accent2)';
+    } else {
+      statusEl.textContent = '✗ Не найден автоматически — укажите путь вручную';
+      statusEl.style.color = 'var(--accent)';
+    }
+  } catch(e) {
+    statusEl.textContent = '✗ Ошибка поиска';
+    statusEl.style.color = 'var(--accent)';
+  }
+}
+
+async function applyNginx() {
+  const domain = document.getElementById('nginx-domain').value.trim();
+  const dir    = document.getElementById('nginx-dir').value.trim();
+  const cert   = document.getElementById('nginx-cert').value.trim() || NGINX_DEFAULT_CERT;
+  const key    = document.getElementById('nginx-key').value.trim()  || NGINX_DEFAULT_KEY;
+  const statusEl = document.getElementById('nginx-status');
+
+  if (!domain) { showNginxStatus('✗ Укажите домен', false); return; }
+  if (!dir)    { showNginxStatus('✗ Укажите путь к nginx', false); return; }
+
+  showNginxStatus('⏳ Применяю...', null);
+  try {
+    const upstream = document.getElementById('nginx-upstream').value.trim() || 'remnawave-backup-manager:8090';
+    const r = await authFetch('/api/nginx/apply', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({domain, nginx_dir: dir, cert_file: cert, key_file: key, upstream})
+    });
+    const d = await r.json();
+    if (r.ok) {
+      showNginxStatus('✓ ' + (d.message || 'Применено успешно'), true);
+      checkNginx();
+    } else {
+      showNginxStatus('✗ ' + (d.detail || 'Ошибка'), false);
+    }
+  } catch(e) {
+    showNginxStatus('✗ Ошибка: ' + e.message, false);
+  }
+}
+
+async function checkNginx() {
+  const infoEl = document.getElementById('nginx-info');
+  infoEl.textContent = '⏳ Проверяю...';
+  try {
+    const r = await authFetch('/api/nginx/status');
+    const d = await r.json();
+    if (r.ok) {
+      const configured = d.domain_found;
+      infoEl.innerHTML =
+        `<div style="color:var(--accent2)">✓ nginx запущен</div>` +
+        `<div style="margin-top:6px">Контейнеры: ${d.containers.join(', ') || '—'}</div>` +
+        `<div style="margin-top:4px;color:${configured ? 'var(--accent2)' : 'var(--accent)'}">` +
+        `${configured ? '✅ Backup Manager настроен: ' + d.domain : '⚠ Backup Manager не найден в конфиге nginx'}</div>`;
+    } else {
+      infoEl.innerHTML = `<span style="color:var(--accent)">✗ ${d.detail || 'nginx не найден'}</span>`;
+    }
+  } catch(e) {
+    infoEl.textContent = '✗ Ошибка проверки';
+  }
+}
+
+function showNginxStatus(msg, ok) {
+  const el = document.getElementById('nginx-status');
+  el.style.display = 'block';
+  el.style.background = ok === true ? 'rgba(46,204,113,0.1)' : ok === false ? 'rgba(231,76,60,0.1)' : 'rgba(255,255,255,0.05)';
+  el.style.border = ok === true ? '1px solid rgba(46,204,113,0.3)' : ok === false ? '1px solid rgba(231,76,60,0.3)' : '1px solid var(--border)';
+  el.style.color = ok === true ? 'var(--accent2)' : ok === false ? 'var(--accent)' : 'var(--muted)';
+  el.textContent = msg;
+}
 
 function authFetch(url, options = {}) {
   options.headers = options.headers || {};
@@ -363,6 +499,7 @@ function switchTab(name, btn) {
   document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.getElementById('tab-' + name).classList.add('active');
+  if (name === 'nginx') checkNginx();
   btn.classList.add('active');
   if (name === 'log') refreshLog();
   if (name === 'ssh') initSshTab();
@@ -463,7 +600,7 @@ function addHost() {
     </div>
     <div class="host-row-3">
       <input class="host-user" placeholder="root" value="root">
-      <input class="host-dir" placeholder="/root/vless4less-backups">
+      <input class="host-dir" placeholder="/root/remnawave-backups">
     </div>`;
   document.getElementById('host-list').appendChild(div);
 }
@@ -479,7 +616,7 @@ async function saveHosts() {
       host:  ip,
       port:  parseInt(item.querySelector('.host-port')?.value) || 22,
       user:  item.querySelector('.host-user')?.value.trim() || 'root',
-      dir:   item.querySelector('.host-dir')?.value.trim()  || '/root/vless4less-backups',
+      dir:   item.querySelector('.host-dir')?.value.trim()  || '/root/remnawave-backups',
     });
   });
   const r = await authFetch('/api/config', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ remote_hosts: hosts }) });
