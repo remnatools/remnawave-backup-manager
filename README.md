@@ -13,10 +13,11 @@
 - **Автоотправка по SSH/rsync** — на один или несколько резервных серверов сразу после бэкапа
 - **Расписание** — автозапуск по cron в заданное время
 - **SSH key management** — генерация ключа и установка на хосты прямо из UI
+- **Настройка nginx** — добавление HTTPS через веб-интерфейс без ручного редактирования конфигов
 - **Брендинг** — кастомный логотип, favicon, название
 - **Просмотр и управление бэкапами** — список с размерами, удаление по одному
 - **Лог операций** — сохраняется вне контейнера
-- 
+
 <div align="center">
   <img width="30%" alt="бэкапы" src="https://github.com/user-attachments/assets/032e84f5-da51-4bff-85ad-ecead1eca77b" />
   <img width="30%" alt="настройки" src="https://github.com/user-attachments/assets/fb6b14e8-0e27-4746-997b-6a5ed5560ed1" />
@@ -46,99 +47,77 @@ curl -fsSL https://raw.githubusercontent.com/remnatools/remnawave-backup-manager
 chmod +x install.sh && ./install.sh
 ```
 
+Скрипт автоматически:
+- Установит Docker и acme.sh
+- Создаст Docker сеть
+- Клонирует репо
+- Запросит логин и пароль
+- Выпустит SSL сертификат
+- Запустит контейнер
+
+После установки настройте nginx через веб-интерфейс: **Настройки → Nginx**.
+
 ### Ручная установка
 
-**1. Установить Docker**
+**1. Установить Docker и acme.sh**
 
 ```bash
 curl -fsSL https://get.docker.com | sh
+curl https://get.acme.sh | sh && source ~/.bashrc
 ```
 
-**2. Клонировать репо**
+**2. Создать Docker сеть**
+
+```bash
+docker network create remnawave-network
+```
+
+**3. Клонировать репо**
 
 ```bash
 git clone https://github.com/remnatools/remnawave-backup-manager.git ~/remnawave-backup-manager
 cd ~/remnawave-backup-manager
 ```
 
-**3. Создать `.env`**
+**4. Создать `.env`**
 
 ```bash
 cp .env.example .env
 nano .env   # задать ADMIN_USER и ADMIN_PASS
 ```
 
-**4. Создать лог-файл**
+**5. Выпустить SSL сертификат**
 
 ```bash
-touch /var/log/remnawave_backup.log
-```
-**5. Выпустить SSL сертификат для backup.your-domain.com**
-
-```Порт 80 должен быть свободен
-ss -tlnp | grep :80
+mkdir -p ~/remnawave-backup-manager/app/ssl
 
 ~/.acme.sh/acme.sh --issue -d backup.your-domain.com \
   --standalone --server letsencrypt \
-  --key-file /opt/remnawave/nginx/backup.privkey.key \
-  --fullchain-file /opt/remnawave/nginx/backup.fullchain.pem
+  --keylength 2048 \
+  --key-file ~/remnawave-backup-manager/app/ssl/privkey.key \
+  --fullchain-file ~/remnawave-backup-manager/app/ssl/fullchain.pem
 ```
 
-**6. Добавить сертификат в nginx**
-
-Добавьте тома сертификатов в nginx `docker-compose.yml` (`/opt/remnawave/nginx/docker-compose.yml`):
-
-```yaml
-volumes:
-  - ./backup.fullchain.pem:/etc/nginx/ssl/backup.fullchain.pem:ro
-  - ./backup.privkey.key:/etc/nginx/ssl/backup.privkey.key:ro
-```
-
-#### Добавьте server block в nginx конфиг (`/opt/remnawave/nginx/nginx.conf`):
-
-```nginx
-server {
-    server_name backup.your-domain.com;
-    listen 443 ssl;
-    http2 on;
-
-    location / {
-        proxy_pass http://127.0.0.1:8090;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_ignore_client_abort on;
-    }
-
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_certificate     "/etc/nginx/ssl/backup.fullchain.pem";
-    ssl_certificate_key "/etc/nginx/ssl/backup.privkey.key";
-}
-```
-
-#### Перезапустите nginx:
+**6. Создать лог-файл и запустить**
 
 ```bash
-cd /opt/remnawave/nginx
-docker compose down && docker compose up -d
-```
-
-**7. Запустить**
-
-```bash
+touch /var/log/remnawave_backup.log
 docker compose up -d --build
 ```
 
-Интерфейс доступен через nginx на `https://backup.your-domain.com`.
+Интерфейс доступен на `http://YOUR_SERVER_IP:8090`.
 
+**7. Настроить nginx через веб-интерфейс**
+
+После входа: **Настройки → Nginx** → укажите путь к nginx и домен → применить.
 
 ### После запуска
 
 1. Войдите в интерфейс по логину и паролю из `.env`
 2. Вкладка **SSH** → сгенерируйте ключ → установите на резервные серверы
 3. **Настройки** → добавьте удалённые хосты для rsync
-4. Нажмите **Запустить бэкап** для проверки
+4. **Настройки → Nginx** → настройте HTTPS
+5. Нажмите **Запустить бэкап** для проверки
 
 ## Конфигурация
 
