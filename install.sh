@@ -249,26 +249,47 @@ if [ "$ISSUE_CERT" = true ]; then
                     ;;
             esac
         else
-            # Другая ошибка — показываем и ждём
-            echo ""
-            warn "Ошибка выпуска сертификата:"
-            echo "$ACME_OUT" | tail -5
-            echo ""
-            echo "  [1] Исправить проблему и попробовать снова"
-            echo "  [2] Прервать установку"
-            read -rp "  Выбор [1/2]: " ERR_CHOICE
-            if [ "$ERR_CHOICE" = "1" ]; then
-                warn "Исправьте проблему (DNS, порт 80) и нажмите Enter..."
-                read -rp "  "
-                $ACME --issue -d "$DOMAIN" \
-                    --standalone --server letsencrypt \
-                    --keylength 2048 \
-                    --key-file "$KEY_FILE" \
-                    --fullchain-file "$CERT_FILE" \
-                    && info "SSL сертификат получен" \
-                    || error "Не удалось получить сертификат"
+            # Проверяем — сертификат уже есть в кэше acme.sh (Skipping / Domains not changed)
+            if echo "$ACME_OUT" | grep -q "Skipping\|Domains not changed"; then
+                ACME_CERT=$(find ~/.acme.sh -name "fullchain.cer" 2>/dev/null | grep -i "${DOMAIN}" | head -1 || true)
+                ACME_KEY=$(find ~/.acme.sh -name "*.key" 2>/dev/null | grep -i "${DOMAIN}" | grep -v "account" | head -1 || true)
+                if [ -n "$ACME_CERT" ] && [ -n "$ACME_KEY" ]; then
+                    cp "$ACME_CERT" "$CERT_FILE"
+                    cp "$ACME_KEY"  "$KEY_FILE"
+                    info "Сертификат скопирован из кэша acme.sh"
+                else
+                    warn "Сертификат в кэше не найден — выпускаю принудительно..."
+                    $ACME --issue -d "$DOMAIN" \
+                        --standalone --server letsencrypt \
+                        --keylength 2048 \
+                        --key-file "$KEY_FILE" \
+                        --fullchain-file "$CERT_FILE" \
+                        --force \
+                        && info "SSL сертификат получен" \
+                        || error "Не удалось получить сертификат"
+                fi
             else
-                error "Установка прервана"
+                # Другая ошибка — показываем и ждём
+                echo ""
+                warn "Ошибка выпуска сертификата:"
+                echo "$ACME_OUT" | tail -5
+                echo ""
+                echo "  [1] Исправить проблему и попробовать снова"
+                echo "  [2] Прервать установку"
+                read -rp "  Выбор [1/2]: " ERR_CHOICE
+                if [ "$ERR_CHOICE" = "1" ]; then
+                    warn "Исправьте проблему (DNS, порт 80) и нажмите Enter..."
+                    read -rp "  "
+                    $ACME --issue -d "$DOMAIN" \
+                        --standalone --server letsencrypt \
+                        --keylength 2048 \
+                        --key-file "$KEY_FILE" \
+                        --fullchain-file "$CERT_FILE" \
+                        && info "SSL сертификат получен" \
+                        || error "Не удалось получить сертификат"
+                else
+                    error "Установка прервана"
+                fi
             fi
         fi
     fi
