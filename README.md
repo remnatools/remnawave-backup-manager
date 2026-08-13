@@ -1,6 +1,6 @@
 # Remnawave Backup Manager
 
-Веб-интерфейс для резервного копирования [Remnawave](https://github.com/remnawave) VPN-панели с [BEDOLAGA ботом](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot) и [BEDOLAGA кабинетом](https://github.com/BEDOLAGA-DEV/bedolaga-cabinet) на резервном сервере.
+Веб-интерфейс для резервного копирования [Remnawave](https://github.com/remnawave) VPN-панели с [BEDOLAGA ботом](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot) и [BEDOLAGA кабинетом](https://github.com/BEDOLAGA-DEV/bedolaga-cabinet).
 
 ![Python](https://img.shields.io/badge/Python-FastAPI-009688?style=flat-square)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square)
@@ -16,6 +16,7 @@
 - **Брендинг** — кастомный логотип, favicon, название
 - **Просмотр и управление бэкапами** — список с размерами, удаление по одному
 - **Лог операций** — сохраняется вне контейнера
+- Работает **без nginx** — HTTPS напрямую через uvicorn + SSL
 
 <div align="center">
   <img width="30%" alt="бэкапы" src="https://github.com/user-attachments/assets/032e84f5-da51-4bff-85ad-ecead1eca77b" />
@@ -50,11 +51,11 @@ chmod +x install.sh && ./install.sh
 - Установит Docker и acme.sh
 - Создаст Docker сеть
 - Клонирует репо
-- Запросит логин и пароль
-- Выпустит SSL сертификат
+- Запросит логин, пароль и домен
+- Выпустит SSL сертификат (RSA 2048)
 - Запустит контейнер
 
-После установки настройте nginx через веб-интерфейс: **Настройки → Nginx**.
+После установки интерфейс доступен на `https://your-domain.com:8090`.
 
 ### Ручная установка
 
@@ -87,6 +88,8 @@ nano .env   # задать ADMIN_USER и ADMIN_PASS
 
 **5. Выпустить SSL сертификат**
 
+> ⚠️ Используйте `--keylength 2048` (RSA) — uvicorn не поддерживает EC ключи
+
 ```bash
 mkdir -p ~/remnawave-backup-manager/app/ssl
 
@@ -97,30 +100,59 @@ mkdir -p ~/remnawave-backup-manager/app/ssl
   --fullchain-file ~/remnawave-backup-manager/app/ssl/fullchain.pem
 ```
 
-**6. Создать лог-файл и запустить**
+**6. Открыть порт в firewall**
+
+```bash
+ufw allow 8090/tcp
+```
+
+**7. Создать лог-файл и запустить**
 
 ```bash
 touch /var/log/remnawave_backup.log
 docker compose up -d --build
 ```
 
-Интерфейс доступен на `http://YOUR_SERVER_IP:8090`.
-
-**7. Настроить nginx через веб-интерфейс**
-
-После входа: **Настройки → Nginx** → укажите путь к nginx и домен → применить.
+Интерфейс доступен на `https://backup.your-domain.com:8090`.
 
 ### После запуска
 
 1. Войдите в интерфейс по логину и паролю из `.env`
 2. Вкладка **SSH** → сгенерируйте ключ → установите на резервные серверы
 3. **Настройки** → добавьте удалённые хосты для rsync
-4. **Настройки → Nginx** → настройте HTTPS
-5. Нажмите **Запустить бэкап** для проверки
+4. Нажмите **Запустить бэкап** для проверки
+
+### Опционально: убрать порт из URL через nginx
+
+Если на сервере уже установлена Remnawave панель с nginx и вы хотите доступ без порта (`https://backup.your-domain.com`), добавьте server block в ваш `nginx.conf`:
+
+```nginx
+server {
+    server_name backup.your-domain.com;
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+
+    location / {
+        proxy_pass https://127.0.0.1:8090;
+        proxy_ssl_verify off;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300;
+        client_max_body_size 10m;
+    }
+
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_certificate     "/etc/nginx/ssl/backup.fullchain.pem";
+    ssl_certificate_key "/etc/nginx/ssl/backup.privkey.key";
+}
+```
+
+Не забудьте смонтировать сертификаты в nginx docker-compose.yml и перезапустить nginx.
 
 ## Конфигурация
-
-Параметры задаются в `.env`:
 
 ```env
 ADMIN_USER=admin
@@ -137,8 +169,9 @@ CABINET_SRC=/root/bedolaga-cabinet
 ## Архитектура
 
 ```
-Основной сервер
-├── backup-manager         — порт 8090, за nginx на 443
+Сервер с панелью
+├── backup-manager         — порт 8090, HTTPS напрямую (uvicorn + SSL)
+│   └── app/ssl/           — SSL сертификат (acme.sh, RSA 2048)
 ├── backup.sh              — скрипт бэкапа
 └── /root/remnawave-backups/
     └── 20260804_103517/   ← rsync → резервные серверы автоматически
@@ -149,7 +182,8 @@ CABINET_SRC=/root/bedolaga-cabinet
 ```
 remnawave-backup-manager/
 ├── app/
-│   └── main.py              # FastAPI приложение
+│   ├── main.py              # FastAPI приложение
+│   └── ssl/                 # SSL сертификаты (генерируются при установке)
 ├── templates/
 │   └── index.html           # Веб-интерфейс
 ├── data/
