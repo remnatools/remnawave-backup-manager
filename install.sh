@@ -31,6 +31,45 @@ echo "╔═══════════════════════�
 echo "║     Remnawave Backup Manager — Installer     ║"
 echo "╚══════════════════════════════════════════════╝"
 echo ""
+echo "  [1] Установить / Обновить"
+echo "  [2] Удалить"
+echo ""
+read -rp "  Выбор [1/2]: " MAIN_ACTION
+
+# ── УДАЛЕНИЕ ──────────────────────────────────────────────────────────────────
+if [ "$MAIN_ACTION" = "2" ]; then
+    echo ""
+    warn "Это удалит контейнер, образ и папку $INSTALL_DIR."
+    warn "Бэкапы в /root/remnawave-backups удалены НЕ будут."
+    echo ""
+    read -rp "  Продолжить? (yes/no): " CONFIRM_DEL
+    [ "$CONFIRM_DEL" != "yes" ] && echo "Отменено." && exit 0
+
+    info "Останавливаю и удаляю контейнер..."
+    if [ -d "$INSTALL_DIR" ]; then
+        cd "$INSTALL_DIR"
+        docker compose down --rmi local 2>/dev/null || true
+    else
+        docker rm -f remnawave-backup-manager 2>/dev/null || true
+    fi
+
+    info "Удаляю папку $INSTALL_DIR..."
+    rm -rf "$INSTALL_DIR"
+
+    info "Удаляю лог-файл..."
+    rm -f "$LOG_FILE"
+
+    echo ""
+    echo "╔══════════════════════════════════════════════╗"
+    echo "║  ✅  Backup Manager удалён                   ║"
+    echo "╚══════════════════════════════════════════════╝"
+    echo ""
+    exit 0
+fi
+
+[ "$MAIN_ACTION" != "1" ] && error "Некорректный выбор"
+
+# ── УСТАНОВКА ─────────────────────────────────────────────────────────────────
 
 # ── 1. Docker ─────────────────────────────────────────────────────────────────
 if ! command -v docker &>/dev/null; then
@@ -110,11 +149,9 @@ mkdir -p "$SSL_DIR"
 if [ -f "$CERT_FILE" ] && [ -f "$KEY_FILE" ]; then
     warn "Сертификат уже существует: $SSL_DIR"
     read -rp "  Перевыпустить? [y/N]: " REISSUE
-    if [[ "$REISSUE" =~ ^[Yy]$ ]]; then
-        ISSUE_CERT=true
-    else
+    [[ "$REISSUE" =~ ^[Yy]$ ]] && ISSUE_CERT=true || ISSUE_CERT=false
+    if [ "$ISSUE_CERT" = false ]; then
         info "Используется существующий сертификат"
-        ISSUE_CERT=false
     fi
 else
     ISSUE_CERT=true
@@ -129,53 +166,130 @@ if [ "$ISSUE_CERT" = true ]; then
 
     if [ -n "$PORT80_PID" ]; then
         warn "Порт 80 занят: $PORT80_NAME (PID $PORT80_PID)"
-        echo ""
         echo "  [1] Остановить автоматически"
         echo "  [2] Я остановлю вручную (скрипт подождёт)"
         read -rp "  Выбор [1/2]: " CHOICE80
-
         if [ "$CHOICE80" = "1" ]; then
             kill "$PORT80_PID" 2>/dev/null \
                 && info "Процесс $PORT80_NAME (PID $PORT80_PID) остановлен" \
-                || error "Не удалось остановить процесс — остановите вручную и запустите скрипт снова"
+                || error "Не удалось остановить — остановите вручную и запустите скрипт снова"
             sleep 1
         else
-            warn "Остановите процесс вручную:"
-            echo "    kill $PORT80_PID   # $PORT80_NAME"
-            echo ""
+            warn "Остановите процесс вручную: kill $PORT80_PID   # $PORT80_NAME"
             read -rp "  Нажмите Enter когда порт 80 освобождён..."
-            ss -tlnp | grep -q ':80 ' && error "Порт 80 всё ещё занят — запустите скрипт снова"
+            ss -tlnp | grep -q ':80 ' && error "Порт 80 всё ещё занят"
         fi
     else
         info "Порт 80 свободен"
     fi
 
+    # Выпуск сертификата с режимом ожидания при rate limit
     info "Выпускаю SSL сертификат для $DOMAIN (RSA 2048)..."
-    $ACME --issue -d "$DOMAIN" \
+    ACME_OUT=$($ACME --issue -d "$DOMAIN" \
         --standalone --server letsencrypt \
         --keylength 2048 \
         --key-file "$KEY_FILE" \
-        --fullchain-file "$CERT_FILE" \
-        && info "SSL сертификат получен: $SSL_DIR" \
-        || error "Не удалось получить сертификат. Проверьте что $DOMAIN указывает на этот сервер"
+        --fullchain-file "$CERT_FILE" 2>&1) && ACME_OK=true || ACME_OK=false
+
+    if [ "$ACME_OK" = true ]; then
+        info "SSL сертификат получен: $SSL_DIR"
+    else
+        # Проверяем на rate limit
+        RETRY_AFTER=$(echo "$ACME_OUT" | grep -oP 'retry after \K[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} UTC' || true)
+        if [ -n "$RETRY_AFTER" ]; then
+            echo ""
+            warn "Let's Encrypt rate limit: слишком много сертификатов для $DOMAIN"
+            warn "Повтор возможен после: $RETRY_AFTER"
+            echo ""
+            echo "  Варианты:"
+            echo "  [1] Подождать и попробовать снова (скрипт будет ждать)"
+            echo "  [2] Использовать другой домен"
+            echo "  [3] Пропустить SSL и продолжить без сертификата (небезопасно)"
+            echo ""
+            read -rp "  Выбор [1/2/3]: " RATE_CHOICE
+
+            case "$RATE_CHOICE" in
+                1)
+                    warn "Скрипт ждёт. Нажмите Enter когда будете готовы повторить попытку..."
+                    read -rp "  (убедитесь что DNS настроен и лимит сброшен) "
+                    info "Повторяю выпуск сертификата..."
+                    $ACME --issue -d "$DOMAIN" \
+                        --standalone --server letsencrypt \
+                        --keylength 2048 \
+                        --key-file "$KEY_FILE" \
+                        --fullchain-file "$CERT_FILE" \
+                        && info "SSL сертификат получен" \
+                        || error "Не удалось получить сертификат"
+                    ;;
+                2)
+                    prompt "Введите новый домен:"
+                    read -rp "  Домен: " DOMAIN
+                    [ -z "$DOMAIN" ] && error "Домен не может быть пустым"
+                    $ACME --issue -d "$DOMAIN" \
+                        --standalone --server letsencrypt \
+                        --keylength 2048 \
+                        --key-file "$KEY_FILE" \
+                        --fullchain-file "$CERT_FILE" \
+                        && info "SSL сертификат получен для $DOMAIN" \
+                        || error "Не удалось получить сертификат"
+                    ;;
+                3)
+                    warn "Продолжаю без SSL — интерфейс будет доступен только по HTTP"
+                    warn "Это небезопасно! Выпустите сертификат позже и пересоберите контейнер."
+                    DOMAIN_DISPLAY="http://YOUR_SERVER_IP:8090 (без SSL!)"
+                    ;;
+                *)
+                    error "Некорректный выбор"
+                    ;;
+            esac
+        else
+            # Другая ошибка — показываем и ждём
+            echo ""
+            warn "Ошибка выпуска сертификата:"
+            echo "$ACME_OUT" | tail -5
+            echo ""
+            echo "  [1] Исправить проблему и попробовать снова"
+            echo "  [2] Прервать установку"
+            read -rp "  Выбор [1/2]: " ERR_CHOICE
+            if [ "$ERR_CHOICE" = "1" ]; then
+                warn "Исправьте проблему (DNS, порт 80) и нажмите Enter..."
+                read -rp "  "
+                $ACME --issue -d "$DOMAIN" \
+                    --standalone --server letsencrypt \
+                    --keylength 2048 \
+                    --key-file "$KEY_FILE" \
+                    --fullchain-file "$CERT_FILE" \
+                    && info "SSL сертификат получен" \
+                    || error "Не удалось получить сертификат"
+            else
+                error "Установка прервана"
+            fi
+        fi
+    fi
 fi
 
-# ── 7. Лог-файл ───────────────────────────────────────────────────────────────
+# ── 7. Firewall ───────────────────────────────────────────────────────────────
+if command -v ufw &>/dev/null; then
+    ufw allow 8090/tcp 2>/dev/null && info "Порт 8090 открыт в ufw" || true
+fi
+
+# ── 8. Лог-файл ───────────────────────────────────────────────────────────────
 touch "$LOG_FILE"
 info "Лог-файл создан: $LOG_FILE"
 
-# ── 8. Запуск Backup Manager ──────────────────────────────────────────────────
+# ── 9. Запуск Backup Manager ──────────────────────────────────────────────────
 echo ""
 info "Собираю и запускаю Backup Manager..."
 docker compose up -d --build
 
 # ── Готово ────────────────────────────────────────────────────────────────────
+DOMAIN_DISPLAY="${DOMAIN_DISPLAY:-https://$DOMAIN:8090}"
 echo ""
 echo "╔══════════════════════════════════════════════════════════╗"
 echo "║  ✅  Remnawave Backup Manager запущен!                   ║"
 echo "╠══════════════════════════════════════════════════════════╣"
 echo "║                                                          ║"
-printf "║  🌐  https://%-44s║\n" "$DOMAIN:8090"
+printf "║  🌐  %-53s║\n" "$DOMAIN_DISPLAY"
 echo "║                                                          ║"
 echo "║  Следующие шаги:                                         ║"
 echo "║  1. Войдите с логином и паролем из .env                  ║"
