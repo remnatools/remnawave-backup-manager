@@ -42,8 +42,14 @@ if [ "$MAIN_ACTION" = "2" ]; then
     warn "Это удалит контейнер, образ и папку $INSTALL_DIR."
     warn "Бэкапы в /root/remnawave-backups удалены НЕ будут."
     echo ""
-    read -rp "  Продолжить? (yes/no): " CONFIRM_DEL
-    [ "$CONFIRM_DEL" != "yes" ] && echo "Отменено." && exit 0
+    while true; do
+        read -rp "  Продолжить? (yes/no): " CONFIRM_DEL
+        case "$CONFIRM_DEL" in
+            yes) break ;;
+            no)  echo "Отменено." && exit 0 ;;
+            *)   warn "Введите 'yes' для подтверждения или 'no' для отмены" ;;
+        esac
+    done
 
     info "Останавливаю и удаляю контейнер..."
     if [ -d "$INSTALL_DIR" ]; then
