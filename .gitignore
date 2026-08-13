@@ -12,3 +12,6 @@ __pycache__/
 .dockerignore
 data/
 data/
+
+# SSL сертификаты — генерируются при установке
+app/ssl/

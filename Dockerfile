@@ -13,4 +13,4 @@ COPY templates/ /app/templates/
 
 RUN mkdir -p /app/data /var/log
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8090"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8443", "--ssl-keyfile", "/app/ssl/privkey.key", "--ssl-certfile", "/app/ssl/fullchain.pem"]

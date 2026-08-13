@@ -1,5 +1,5 @@
 #!/bin/bash
-BACKUP_ROOT="${BACKUP_ROOT:-/root/vless4less-backups}"
+BACKUP_ROOT="${BACKUP_ROOT:-/root/remnawave-backups}"
 KEEP_LOCAL="${KEEP_LOCAL:-7}"
 PANEL_DB_CONTAINER="${PANEL_DB_CONTAINER:-remnawave-db}"
 PANEL_DB_USER="${PANEL_DB_USER:-postgres}"
